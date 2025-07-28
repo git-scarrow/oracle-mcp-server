@@ -2,6 +2,10 @@
 
 A Model Context Protocol (MCP) server that provides flexible access to Oracle databases for AI assistants like Claude. Supports querying across multiple schemas and comprehensive database introspection.
 
+<a href="https://glama.ai/mcp/servers/@samscarrow/oracle-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@samscarrow/oracle-mcp-server/badge" alt="Oracle Server MCP server" />
+</a>
+
 ## Features
 
 - Execute SQL queries with parameter binding
