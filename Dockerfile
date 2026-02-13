@@ -25,8 +25,8 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci --only=production
 
-# Copy app source
-COPY . .
+# Copy only runtime source (avoid baking secrets / dev artifacts into image)
+COPY src ./src
 
 # Run as non-root user
 USER node

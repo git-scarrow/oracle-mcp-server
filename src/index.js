@@ -5,8 +5,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import oracledb from 'oracledb';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 
-dotenv.config();
+// MCP stdio servers must not write non-JSON output to stdout; dotenv v17 logs a
+// startup banner to stdout unless `quiet` is enabled.
+const envPath = resolve(dirname(fileURLToPath(import.meta.url)), '../.env');
+dotenv.config({ path: envPath, quiet: true });
 
 // Initialize Oracle client
 // For Oracle Autonomous Database with wallet, you may need thick mode
