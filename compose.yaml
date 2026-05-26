@@ -1,0 +1,36 @@
+services:
+  oracle-free:
+    image: container-registry.oracle.com/database/free:latest
+    container_name: oracle-free
+    restart: unless-stopped
+    shm_size: 2gb
+    ports:
+      - "1521:1521"
+    environment:
+      ORACLE_PWD: ${ORACLE_FREE_PWD:?set ORACLE_FREE_PWD in .env}
+      ORACLE_CHARACTERSET: AL32UTF8
+    volumes:
+      - oracle-free-data:/opt/oracle/oradata
+      - ./dpdump:/opt/oracle/dpdump
+    healthcheck:
+      test: ["CMD", "/opt/oracle/checkDBStatus.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 2m
+
+  oracle-mcp:
+    image: nix:5000/oracle-mcp:latest
+    depends_on:
+      oracle-free:
+        condition: service_healthy
+    environment:
+      ORACLE_HOST: oracle-free
+      ORACLE_PORT: "1521"
+      ORACLE_SERVICE_NAME: FREEPDB1
+      ORACLE_USER: ${ORACLE_USER:-chatsearch}
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:?set ORACLE_PASSWORD in .env}
+    restart: unless-stopped
+
+volumes:
+  oracle-free-data:

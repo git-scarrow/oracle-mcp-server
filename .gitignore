@@ -32,3 +32,6 @@ build/
 # Oracle Instant Client (if downloaded locally)
 instantclient*/
 oracle-client/
+# Generated context dumps (not source)
+repomix-output.xml
+gemini-conversation-*.json
