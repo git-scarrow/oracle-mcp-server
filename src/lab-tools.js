@@ -415,7 +415,7 @@ class LabService {
       repo_ready: Number(item.REPO_READY || item.repo_ready || 0) === 1,
       escalation_level: normalizeValue(item.ESCALATION_LEVEL || item.escalation_level || 'Normal'),
       project_focus: Number(item.PROJECT_FOCUS || item.project_focus || 0) === 1,
-      project_max_active_items: Number(item.MAX_ACTIVE_ITEMS || item.max_active_items || 2),
+      project_max_active_items: intOrDefault(item.MAX_ACTIVE_ITEMS ?? item.max_active_items, 2),
       project_min_terminal_value: normalizeValue(item.MIN_TERMINAL_VALUE || item.min_terminal_value || 'Any'),
       project_fork_budget: item.FORK_BUDGET || item.fork_budget || null,
       created_at: item.CREATED_AT || item.created_at || nowIso(),

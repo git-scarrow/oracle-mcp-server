@@ -219,17 +219,21 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF OLD.lab_dispatch_requested_at IS NULL AND NEW.lab_dispatch_requested_at IS NOT NULL THEN
+  -- On INSERT, OLD is unassigned; treat preset timestamps as NULL->non-NULL
+  -- edges so inserted rows emit the same outbox events as updated rows
+  -- (parity with the Oracle AFTER INSERT OR UPDATE trigger). TG_OP is checked
+  -- first so OLD is never dereferenced on INSERT.
+  IF (TG_OP = 'INSERT' OR OLD.lab_dispatch_requested_at IS NULL) AND NEW.lab_dispatch_requested_at IS NOT NULL THEN
     INSERT INTO lab_outbox_events (event_type, aggregate_type, aggregate_id, payload_json)
     VALUES ('dispatch_requested', 'work_item', NEW.work_item_id, jsonb_build_object('work_item_id', NEW.work_item_id, 'status', NEW.status));
   END IF;
 
-  IF OLD.return_received_at IS NULL AND NEW.return_received_at IS NOT NULL THEN
+  IF (TG_OP = 'INSERT' OR OLD.return_received_at IS NULL) AND NEW.return_received_at IS NOT NULL THEN
     INSERT INTO lab_outbox_events (event_type, aggregate_type, aggregate_id, payload_json)
     VALUES ('return_received', 'work_item', NEW.work_item_id, jsonb_build_object('work_item_id', NEW.work_item_id, 'run_id', NEW.run_id, 'status', NEW.status));
   END IF;
 
-  IF OLD.synthesis_completed_at IS NULL AND NEW.synthesis_completed_at IS NOT NULL THEN
+  IF (TG_OP = 'INSERT' OR OLD.synthesis_completed_at IS NULL) AND NEW.synthesis_completed_at IS NOT NULL THEN
     INSERT INTO lab_outbox_events (event_type, aggregate_type, aggregate_id, payload_json)
     VALUES ('synthesis_completed', 'work_item', NEW.work_item_id, jsonb_build_object('work_item_id', NEW.work_item_id, 'status', NEW.status));
   END IF;
@@ -238,7 +242,7 @@ END;
 $$;
 
 CREATE TRIGGER lab_work_items_au
-AFTER UPDATE ON lab_work_items
+AFTER INSERT OR UPDATE ON lab_work_items
 FOR EACH ROW
 EXECUTE FUNCTION lab_work_items_after_change();
 
