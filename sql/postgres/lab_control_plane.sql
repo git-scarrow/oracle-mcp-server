@@ -68,6 +68,8 @@ CREATE TABLE lab_work_items (
   writers_room_config_json jsonb,
   model_name text,
   duration_ms integer,
+  commit_sha text,
+  pr_url text,
   lab_dispatch_requested_at timestamptz,
   lab_dispatch_consumed_at timestamptz,
   prompt_request_received_at timestamptz,

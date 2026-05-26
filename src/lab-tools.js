@@ -27,6 +27,13 @@ function intOrDefault(value, fallback) {
   return value == null ? fallback : Number(value);
 }
 
+// Serialize for a `... FORMAT JSON` bind. Returns SQL NULL (not the literal
+// JSON string "null") when the value is absent, so absent and present-but-null
+// stay distinguishable in the column.
+function jsonOrNull(value) {
+  return value == null ? null : JSON.stringify(value);
+}
+
 function requireUuid(value, label) {
   if (!isUuid(value)) {
     throw new Error(`${label} must be a UUID`);
@@ -226,12 +233,17 @@ class LabRepository {
     return result.rowCount;
   }
 
-  async restoreDispatchReady(workItemId, runId, reason) {
+  async restoreDispatchReady(workItemId, runId) {
+    // Clear blocked_reason: a preflight failure must leave the item
+    // dispatch-ready again. build_dispatch_packet (V18) rejects any item with a
+    // non-empty blocked_reason, so persisting the reason here would make the
+    // item permanently non-dispatchable. The reason is retained on the
+    // dispatch_preflight_failed domain event for audit.
     const sql = `
       UPDATE ${this.qualify('lab_work_items')}
       SET run_id = NULL,
           lab_dispatch_consumed_at = NULL,
-          blocked_reason = :3,
+          blocked_reason = NULL,
           status = CASE
             WHEN prompt_drafts IS NOT NULL THEN 'Prompt Drafted'
             ELSE 'Not Started'
@@ -240,7 +252,7 @@ class LabRepository {
       WHERE work_item_id = :1
         AND run_id = :2
     `;
-    const result = await this.client.execute(sql, [workItemId, runId, reason], { autoCommit: true });
+    const result = await this.client.execute(sql, [workItemId, runId], { autoCommit: true });
     return result.rowCount;
   }
 
@@ -255,7 +267,7 @@ class LabRepository {
       SET return_received_at = SYSTIMESTAMP,
           return_consumed_at = SYSTIMESTAMP,
           outcome = :3,
-          dispatch_via = COALESCE(dispatch_via, :4),
+          execution_lane = COALESCE(execution_lane, :4),
           verdict = :5,
           status = :6,
           error_text = :7,
@@ -281,10 +293,10 @@ class LabRepository {
         payload.verdict || null,
         mappedState.status,
         payload.error || null,
-        JSON.stringify(payload.metrics || null),
-        JSON.stringify(payload.artifacts || null),
-        JSON.stringify(payload.files_changed || null),
-        JSON.stringify(payload.tool_calls || null),
+        jsonOrNull(payload.metrics),
+        jsonOrNull(payload.artifacts),
+        jsonOrNull(payload.files_changed),
+        jsonOrNull(payload.tool_calls),
         payload.commit_sha || null,
         payload.pr_url || null,
         payload.model,
@@ -414,6 +426,14 @@ class LabService {
       writers_room_config: parseJsonField(item.WRITERS_ROOM_CONFIG_JSON || item.writers_room_config_json || null, 'writers_room_config'),
     };
 
+    // Resolve execution_lane from dispatch_via before validating it (V3).
+    // Otherwise a dispatch_via-only item fails V3 and the default below would
+    // be unreachable.
+    if (!normalized.execution_lane && normalized.dispatch_via) {
+      normalized.execution_lane =
+        DISPATCH_VIA_DEFAULTS[normalized.dispatch_via] || normalized.execution_lane;
+    }
+
     const gateState = await this.checkGates(workItemId);
     if (gateState.halt) {
       errors.push(`V13/V14: ${gateState.detail}`);
@@ -481,7 +501,7 @@ class LabService {
       return { packet: null, errors };
     }
 
-    const executionLane = normalized.execution_lane || DISPATCH_VIA_DEFAULTS[normalized.dispatch_via];
+    const executionLane = normalized.execution_lane;
     const packet = {
       version: DISPATCH_PACKET_VERSION,
       run_id: crypto.randomUUID(),
@@ -544,7 +564,7 @@ class LabService {
     requireUuid(workItemId, 'work_item_id');
     requireUuid(runId, 'run_id');
     requireNonEmptyString(reason, 'reason');
-    const updated = await this.repository.restoreDispatchReady(workItemId, runId, reason);
+    const updated = await this.repository.restoreDispatchReady(workItemId, runId);
     if (updated === 0) {
       throw new Error('Dispatch preflight failure could not be recorded for this run_id.');
     }
@@ -611,6 +631,17 @@ class LabService {
     if (!WRITERS_ROOM_TASK_TYPES.has(args.task_type)) {
       throw new Error(`Unknown task_type: ${args.task_type}`);
     }
+    const season = Number(args.season);
+    if (!Number.isFinite(season) || season <= 0) {
+      throw new Error('season must be a positive number');
+    }
+    let episode = null;
+    if (args.episode != null) {
+      episode = Number(args.episode);
+      if (!Number.isFinite(episode) || episode <= 0) {
+        throw new Error('episode must be a positive number when provided');
+      }
+    }
 
     const sceneItemId = crypto.randomUUID();
     const characterList = Array.isArray(args.character_list)
@@ -622,8 +653,8 @@ class LabService {
     const scene = {
       scene_item_id: sceneItemId,
       scene_name: args.scene_name,
-      season: Number(args.season),
-      episode: args.episode == null ? null : Number(args.episode),
+      season,
+      episode,
       task_type: args.task_type,
       creative_brief: args.creative_brief,
       character_list: characterList,

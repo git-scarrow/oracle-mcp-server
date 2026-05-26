@@ -69,6 +69,8 @@ CREATE TABLE lab_work_items (
   writers_room_config_json   CLOB CHECK (writers_room_config_json IS JSON),
   model_name                 VARCHAR2(255),
   duration_ms                NUMBER,
+  commit_sha                 VARCHAR2(64),
+  pr_url                     VARCHAR2(1024),
   lab_dispatch_requested_at  TIMESTAMP WITH TIME ZONE,
   lab_dispatch_consumed_at   TIMESTAMP WITH TIME ZONE,
   prompt_request_received_at TIMESTAMP WITH TIME ZONE,
