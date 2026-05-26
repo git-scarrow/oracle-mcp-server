@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --test test_lab_tools.js"
   },
   "keywords": [
     "mcp",
@@ -26,7 +27,10 @@
     "oracledb": "^6.3.0",
     "dotenv": "^17.2.0"
   },
+  "overrides": {
+    "ip-address": "10.1.1"
+  },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.14.1"
   }
 }

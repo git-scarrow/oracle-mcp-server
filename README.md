@@ -1,6 +1,9 @@
 # Oracle MCP Server
 
-A Model Context Protocol (MCP) server that provides flexible access to Oracle databases for AI assistants like Claude. Supports querying across multiple schemas and comprehensive database introspection.
+A Model Context Protocol (MCP) server for Oracle with two layers:
+
+- generic Oracle query/introspection tools
+- a backend-owned Lab control-plane mirror that reproduces the Notion Lab dispatch/return loop on Oracle tables
 
 ## Features
 
@@ -8,6 +11,9 @@ A Model Context Protocol (MCP) server that provides flexible access to Oracle da
 - List tables across multiple schemas or filter by specific schema
 - Describe table structures with multi-schema support
 - View indexes and constraints across schemas
+- Check Lab control-plane gates and build dispatch packets from backend state
+- Stamp dispatch consumption, ingest execution returns, and create writers-room scene items
+- Bootstrap the same Lab mirror on Oracle or PostgreSQL using the included DDL
 - Multiple Oracle authentication methods
 - Automatic parameter conversion (PostgreSQL style to Oracle)
 - SQL injection prevention via bind variables
@@ -147,6 +153,44 @@ After updating the configuration, restart Claude Desktop or Claude Code.
    - Shows schema name for each constraint
 
 6. **list_schemas** - List all accessible schemas
+
+7. **check_gates** - Read `lab_control` + `lab_work_items` and enforce Pre-Flight / cascade-depth gates
+8. **get_dispatchable_items** - List backend-owned Lab work items ready for dispatch
+9. **build_dispatch_packet** - Validate a work item and produce an execution packet
+10. **stamp_dispatch_consumed** - Accept ownership of a dispatch run
+11. **fail_dispatch_preflight** - Revert a failed preflight and restore a dispatch-ready state
+12. **handle_final_return** - Ingest a structured execution result into backend state
+13. **dispatch_scene** - Create a writers-room scene item and fire its entry signal
+
+## Lab Mirror Bootstrap
+
+Oracle DDL:
+
+```bash
+sqlplus user/password@db @sql/oracle/lab_control_plane.sql
+```
+
+PostgreSQL DDL:
+
+```bash
+psql "$DATABASE_URL" -f sql/postgres/lab_control_plane.sql
+```
+
+The mirror includes:
+
+- `lab_projects`
+- `lab_work_items`
+- `lab_control`
+- `lab_agent_registry`
+- `lab_scene_items`
+- `lab_domain_events`
+- `lab_outbox_events`
+- `notion_projection_state`
+- `lab_audit_log`
+- `lab_telemetry`
+- `lab_evidence_dossier`
+
+See [docs/lab-backend-mirror.md](docs/lab-backend-mirror.md) for the backend ownership model and event flow.
 
 ## Security
 
