@@ -1,5 +1,10 @@
 import oracledb from 'oracledb';
 
+// Return CLOB columns as strings rather than Lob streams. The Lab tools read
+// CLOB-backed columns (objective, prompt_notes, *_json, writers_room_config_json,
+// ...) directly as text/JSON, which would otherwise come back as Lob objects.
+oracledb.fetchAsString = [oracledb.CLOB];
+
 export class OracleClient {
   constructor(getConnectionConfig) {
     this.getConnectionConfig = getConnectionConfig;
