@@ -35,6 +35,23 @@ function jsonOrNull(value) {
   return value == null ? null : JSON.stringify(value);
 }
 
+// blocked_reason is VARCHAR2(4000) (byte-limited). Truncate defensively so an
+// oversized preflight reason cannot raise ORA-12899 and abort the revert,
+// which would otherwise leave the run stuck as consumed.
+const BLOCKED_REASON_MAX_BYTES = 4000;
+function fitBlockedReason(reason) {
+  if (reason == null) return reason;
+  let s = String(reason);
+  if (Buffer.byteLength(s, 'utf8') <= BLOCKED_REASON_MAX_BYTES) return s;
+  const marker = ' …[truncated]';
+  const budget = BLOCKED_REASON_MAX_BYTES - Buffer.byteLength(marker, 'utf8');
+  s = s.slice(0, budget); // ≤ budget chars; trim further for multibyte
+  while (s.length > 0 && Buffer.byteLength(s, 'utf8') > budget) {
+    s = s.slice(0, -1);
+  }
+  return s + marker;
+}
+
 function requireUuid(value, label) {
   if (!isUuid(value)) {
     throw new Error(`${label} must be a UUID`);
@@ -234,15 +251,15 @@ class LabRepository {
     return result.rowCount;
   }
 
-  async restoreDispatchReady(workItemId, runId, reason) {
-    // Mirror notion-forge fail_dispatch_preflight: revert the dispatch start
-    // (clear run_id / consumed_at, reset to a dispatch-ready status) but WRITE
-    // the failure reason into blocked_reason, so the item is Blocked for human
-    // review rather than auto-redispatched. The V18 gate only fires on
-    // human/preflight reasons (it ignores AUTO_BLOCK_PREFIXES via
-    // isAutoBlockReason), so transient computed conditions don't trap the item
-    // while a genuine preflight failure correctly holds it. Auto-restoring here
-    // would risk the known preflight->redispatch->preflight cycle.
+  // Mirror notion-forge fail_dispatch_preflight: revert the dispatch start
+  // (clear run_id / consumed_at, reset to a dispatch-ready status) but WRITE the
+  // failure reason into blocked_reason, so the item is Blocked for human review
+  // rather than auto-redispatched. The V18 gate only fires on human/preflight
+  // reasons (it ignores AUTO_BLOCK_PREFIXES via isAutoBlockReason), so transient
+  // computed conditions don't trap the item while a genuine preflight failure
+  // correctly holds it. Auto-restoring here would risk the known
+  // preflight->redispatch->preflight cycle.
+  async revertAndBlockDispatch(workItemId, runId, reason) {
     const sql = `
       UPDATE ${this.qualify('lab_work_items')}
       SET run_id = NULL,
@@ -256,7 +273,7 @@ class LabRepository {
       WHERE work_item_id = :1
         AND run_id = :2
     `;
-    const result = await this.client.execute(sql, [workItemId, runId, reason], { autoCommit: true });
+    const result = await this.client.execute(sql, [workItemId, runId, fitBlockedReason(reason)], { autoCommit: true });
     return result.rowCount;
   }
 
@@ -571,7 +588,7 @@ class LabService {
     requireUuid(workItemId, 'work_item_id');
     requireUuid(runId, 'run_id');
     requireNonEmptyString(reason, 'reason');
-    const updated = await this.repository.restoreDispatchReady(workItemId, runId, reason);
+    const updated = await this.repository.revertAndBlockDispatch(workItemId, runId, reason);
     if (updated === 0) {
       throw new Error('Dispatch preflight failure could not be recorded for this run_id.');
     }
