@@ -6,6 +6,7 @@ import {
   BLOCKING_ESCALATION_LEVELS,
   DISPATCH_PACKET_VERSION,
   DISPATCH_VIA_DEFAULTS,
+  isAutoBlockReason,
   isUuid,
   LANE_CONSTRAINTS,
   nowIso,
@@ -233,17 +234,20 @@ class LabRepository {
     return result.rowCount;
   }
 
-  async restoreDispatchReady(workItemId, runId) {
-    // Clear blocked_reason: a preflight failure must leave the item
-    // dispatch-ready again. build_dispatch_packet (V18) rejects any item with a
-    // non-empty blocked_reason, so persisting the reason here would make the
-    // item permanently non-dispatchable. The reason is retained on the
-    // dispatch_preflight_failed domain event for audit.
+  async restoreDispatchReady(workItemId, runId, reason) {
+    // Mirror notion-forge fail_dispatch_preflight: revert the dispatch start
+    // (clear run_id / consumed_at, reset to a dispatch-ready status) but WRITE
+    // the failure reason into blocked_reason, so the item is Blocked for human
+    // review rather than auto-redispatched. The V18 gate only fires on
+    // human/preflight reasons (it ignores AUTO_BLOCK_PREFIXES via
+    // isAutoBlockReason), so transient computed conditions don't trap the item
+    // while a genuine preflight failure correctly holds it. Auto-restoring here
+    // would risk the known preflight->redispatch->preflight cycle.
     const sql = `
       UPDATE ${this.qualify('lab_work_items')}
       SET run_id = NULL,
           lab_dispatch_consumed_at = NULL,
-          blocked_reason = NULL,
+          blocked_reason = :3,
           status = CASE
             WHEN prompt_drafts IS NOT NULL THEN 'Prompt Drafted'
             ELSE 'Not Started'
@@ -252,7 +256,7 @@ class LabRepository {
       WHERE work_item_id = :1
         AND run_id = :2
     `;
-    const result = await this.client.execute(sql, [workItemId, runId], { autoCommit: true });
+    const result = await this.client.execute(sql, [workItemId, runId, reason], { autoCommit: true });
     return result.rowCount;
   }
 
@@ -475,7 +479,10 @@ class LabService {
     if (!normalized.repo_ready && normalized.execution_lane !== 'writers-room') {
       errors.push('V17: repo_ready is false for a non-writers-room dispatch');
     }
-    if (normalized.blocked_reason) {
+    // V18 fires only on human/preflight-set block reasons. Transient computed
+    // reasons (AUTO_BLOCK_PREFIXES) are re-derived live by V15-V20 above, so a
+    // stale auto-reason from a prior pass must not permanently block dispatch.
+    if (normalized.blocked_reason && !isAutoBlockReason(normalized.blocked_reason)) {
       errors.push(`V18: blocked_reason is set (${normalized.blocked_reason})`);
     }
     if (BLOCKING_ESCALATION_LEVELS.has(normalized.escalation_level)) {
@@ -564,7 +571,7 @@ class LabService {
     requireUuid(workItemId, 'work_item_id');
     requireUuid(runId, 'run_id');
     requireNonEmptyString(reason, 'reason');
-    const updated = await this.repository.restoreDispatchReady(workItemId, runId);
+    const updated = await this.repository.restoreDispatchReady(workItemId, runId, reason);
     if (updated === 0) {
       throw new Error('Dispatch preflight failure could not be recorded for this run_id.');
     }
