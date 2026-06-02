@@ -6,6 +6,6 @@ on:
 
 jobs:
   review:
-    uses: sam/agent-env/.forgejo/workflows/llm-review.yml@master
+    uses: scarrow/ci/.forgejo/workflows/llm-review.yml@master
     secrets: inherit
 
